@@ -39,6 +39,7 @@
 #include <arch/mach/hikey960/hikey960.h>
 #include <arch/mach/quartz64a/quartz64a.h>
 #include <arch/mach/virt/virt.h>
+#include <arch/mach/rpi3/rpi3.h>
 
 /** Pointer to machine_ops structure being used. */
 static struct arm_machine_ops *machine_ops;
@@ -52,6 +53,8 @@ void machine_ops_init(void)
 	machine_ops = &hikey960_machine_ops;
 #elif defined(MACHINE_quartz64a)
 	machine_ops = &quartz64a_machine_ops;
+#elif defined(MACHINE_rpi3)
+	machine_ops = &rpi3_machine_ops;
 #else
 #error Machine type not defined.
 #endif

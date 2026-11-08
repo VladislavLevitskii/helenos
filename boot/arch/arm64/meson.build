@@ -39,6 +39,11 @@ if MACHINE == 'hikey960' or MACHINE == 'quartz64a'
 	POST_OUTPUT = 'image.boot'
 endif
 
+if MACHINE == 'rpi3'
+	POSTBUILD = 'raw'
+	POST_OUTPUT = 'BOOTAA64.EFI'
+endif
+
 # Request binary output. The ARM64 port manually prepares the .text
 # section to look as a PE file than can be loaded on EFI systems.
 boot_image_format = 'binary'

@@ -57,6 +57,15 @@ if MACHINE == 'virt'
 	]
 endif
 
+# TODO vlastni soubory
+if MACHINE == 'rpi3'
+	rd_essential_drv += [
+		'drv/char/pl011',
+		'drv/intctl/gicv2',
+		'drv/platform/arm64virt',
+	]
+endif
+
 if MACHINE == 'hikey960'
 	rd_essential_drv += [
 		'drv/char/pl011',

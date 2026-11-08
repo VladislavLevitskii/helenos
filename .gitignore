@@ -8,4 +8,8 @@ tags
 tools/sycek/
 tools/xcw/demo/viewer
 /.cache
-tools
+.clangd
+/tools/*
+!/tools/deploy/
+!/tools/deploy/rpi3/
+!/tools/deploy/rpi3/make_rpi_sd.py

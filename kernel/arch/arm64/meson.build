@@ -53,6 +53,10 @@ if MACHINE == 'virt'
 	arch_src += files('src/mach/virt/virt.c')
 endif
 
+if MACHINE == 'rpi3'
+	arch_src += files('src/mach/rpi3/rpi3.c')
+endif
+
 if MACHINE == 'hikey960'
 	arch_src += files('src/mach/hikey960/hikey960.c')
 endif
