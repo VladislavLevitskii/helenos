@@ -33,6 +33,7 @@
  * @brief Bootstrap.
  */
 
+#include "genarch/efi.h"
 #include <stddef.h>
 #include <align.h>
 #include <arch/arch.h>
@@ -295,6 +296,19 @@ efi_status_t bootstrap(void *efi_handle_in,
 
 	uintptr_t entry = check_kernel_translated((void *) decompress_base,
 	    BOOT_OFFSET);
+
+    printf("Storing RSDP table to the bootinfo...\n");
+
+    efi_guid_t acpi_guid = ACPI_20_TABLE_GUID;
+    void* acpi_rsdp = efi_vendor_table_find(efi_system_table_in, acpi_guid);
+
+    if (acpi_rsdp) {
+        bootinfo->acpi_rsdp = acpi_rsdp;
+        printf("RSDP successfully stored at %p\n", acpi_rsdp);
+    } else {
+		bootinfo->acpi_rsdp = NULL;
+        printf("Warning: RSDP not found!\n");
+    }
 
 	printf("Booting the kernel...\n");
 

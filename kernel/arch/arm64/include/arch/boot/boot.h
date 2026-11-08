@@ -97,6 +97,8 @@ typedef struct {
 	taskmap_t taskmap;
 	/** Memory map. */
 	memmap_t memmap;
+	/** Root System Description Pointer */
+	void* acpi_rsdp;
 } bootinfo_t;
 
 #endif /* __ASSEMBLER__ */

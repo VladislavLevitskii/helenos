@@ -33,6 +33,7 @@
  * @brief ARM64 architecture specific functions.
  */
 
+#include "genarch/acpi/acpi.h"
 #include <abi/errno.h>
 #include <arch.h>
 #include <arch/arch.h>
@@ -55,6 +56,8 @@ arch_ops_t arm64_ops = {
 };
 
 arch_ops_t *arch_ops = &arm64_ops;
+
+struct acpi_rsdp *acpi_rsdp = NULL;
 
 /** Perform ARM64 specific initialization before main_bsp() is called. */
 void arm64_pre_main(void *entry __attribute__((unused)), bootinfo_t *bootinfo)
@@ -79,6 +82,8 @@ void arm64_pre_main(void *entry __attribute__((unused)), bootinfo_t *bootinfo)
 		memmap.zones[i].start = bootinfo->memmap.zones[i].start;
 		memmap.zones[i].size = bootinfo->memmap.zones[i].size;
 	}
+
+	acpi_rsdp = bootinfo->acpi_rsdp;
 
 	/* Initialize machine_ops pointer. */
 	machine_ops_init();
