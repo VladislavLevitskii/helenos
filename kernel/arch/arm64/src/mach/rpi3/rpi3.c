@@ -51,7 +51,51 @@
 
 #define VIDEO_ADR2CPU_ADR(n) ((n) - 0x3F000000)
 
+#define CMP_SIGNATURE(left, right) \
+	(((left)[0] == (right)[0]) && \
+	((left)[1] == (right)[1]) && \
+	((left)[2] == (right)[2]) && \
+	((left)[3] == (right)[3]))
+
 static uintptr_t rpi3_miniuart_virt_base = 0;
+static struct spcr* spcr = NULL;
+
+
+// note that you always need to use `read_unaligned_64` when accessing `address` field
+struct spcr {
+	struct acpi_sdt_header header;
+	uint8_t interface_type;
+	uint8_t reserved[3];
+
+	// GAS
+	uint8_t as_id;
+	uint8_t reg_bit_width;
+	uint8_t reg_bit_offset;
+	uint8_t access_size;
+	uint64_t address;
+
+	uint8_t interrupt_type;
+	uint8_t irq;
+	uint32_t gsi;
+	uint8_t configured_baud_rate;
+	uint8_t parity;
+	uint8_t stop_bits;
+	uint8_t flow_control;
+	uint8_t terminal_type;
+	uint8_t language;
+	uint16_t pci_device_id;
+	uint16_t pci_vendor_id;
+	uint8_t pci_bus_number;
+	uint8_t pci_device_number;
+	uint8_t pci_function_number;
+	uint32_t pci_flags;
+	uint8_t pci_segment;
+	uint32_t uart_clock_freq;
+	uint32_t precise_baudrate;
+	uint16_t namespace_string_length;
+	uint16_t namespace_string_offset;
+	uint8_t namespace_string[];
+} __attribute__((packed));
 
 // static struct {
 // 	pl011_uart_t	uart;
@@ -117,7 +161,7 @@ static void initialize_acpi_tables(void) {
     
     bool xsdt_valid = header_check((void*)acpi_xsdt_addr, acpi_xsdt->header.length);
     if (!xsdt_valid) {
-        printf("XSDT is not valid!\n"); // Přidáno \n
+        printf("XSDT is not valid!\n");
         return;
     }
     
@@ -125,18 +169,35 @@ static void initialize_acpi_tables(void) {
     int entries_number = (acpi_xsdt->header.length - sizeof(struct acpi_sdt_header)) / sizeof(uint64_t);
 
     for (int i = 0; i < entries_number; ++i) {
-        uint64_t phys_addr = read_unaligned_64((const void*)acpi_xsdt->entry[i]);
+        uint64_t phys_addr = read_unaligned_64(&acpi_xsdt->entry[i]);
 
         uintptr_t entry_header_addr = km_map((uintptr_t)phys_addr, sizeof(struct acpi_sdt_header), KM_NATURAL_ALIGNMENT, acpi_flags);
         struct acpi_sdt_header* entry_header = (struct acpi_sdt_header*)entry_header_addr;
 
-        printf("Entry signature %u: ", i);
-        for (int j = 0; j < 4; ++j) {
-            printf("%c", (char)entry_header->signature[j]);
-        }
-        printf("\n");
+        if (__builtin_memcmp(entry_header->signature, "SPCR", 4) == 0) {
+			uintptr_t spcr_addr = km_map(phys_addr, entry_header->length, KM_NATURAL_ALIGNMENT, acpi_flags);
+			spcr = (struct spcr*)spcr_addr;
+			bool valid_spcr = header_check(spcr, spcr->header.length);
+
+			if (!valid_spcr) {
+				printf("SPCR is not valid!\n");
+				return;
+			}
+			continue;
+		}
     }
-    
+
+	if (spcr == NULL) {
+		// again if we did't find it we don't know the UART base address so we can't print it
+		printf("We didn't find SPCR entry!\n");
+		return;
+	}
+ 
+	uintptr_t miniuart_phys_base = read_unaligned_64(&spcr->address);
+	
+	const unsigned int uart_flags = PAGE_NOT_CACHEABLE | PAGE_READ | PAGE_WRITE | PAGE_KERNEL;
+    rpi3_miniuart_virt_base = km_map(miniuart_phys_base, PAGE_SIZE, KM_NATURAL_ALIGNMENT, uart_flags);
+
 }
 
 /**
@@ -148,10 +209,6 @@ static void initialize_acpi_tables(void) {
 */
 static void rpi3_init(void)
 {	
-	const unsigned int uart_flags = PAGE_NOT_CACHEABLE | PAGE_READ | PAGE_WRITE | PAGE_KERNEL;
-
-	// printf works only after setting the miniUART virtual base
-    rpi3_miniuart_virt_base = km_map(VIDEO_ADR2CPU_ADR(AUX_MU_BASE_REG), PAGE_SIZE, KM_NATURAL_ALIGNMENT, uart_flags);
 	initialize_acpi_tables();
 }
 
