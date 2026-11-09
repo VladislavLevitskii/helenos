@@ -40,6 +40,7 @@
 #include <genarch/drivers/bcm2835/timer.h>
 #include <genarch/drivers/bcm2835/mbox.h>
 #include <mm/km.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #define BIT(n) (1U << (n))
@@ -51,22 +52,107 @@
 #define VIDEO_ADR2CPU_ADR(n) ((n) - 0x3F000000)
 
 static uintptr_t rpi3_miniuart_virt_base = 0;
-static uintptr_t rpi3_acpi_rsdp = 0;
 
 // static struct {
 // 	pl011_uart_t	uart;
 // } raspi;
 
-/** Initialize the RPi 3 platform. */
+// we need this function because ARM doesn't support misaligned access via 64b pointer from xsdt
+static uint64_t read_unaligned_64(const void *ptr) {
+    const volatile uint8_t *b = (const volatile uint8_t *)ptr;
+    
+    uint64_t val = 0;
+    val |= ((uint64_t)b[0]);
+    val |= ((uint64_t)b[1] << 8);
+    val |= ((uint64_t)b[2] << 16);
+    val |= ((uint64_t)b[3] << 24);
+    val |= ((uint64_t)b[4] << 32);
+    val |= ((uint64_t)b[5] << 40);
+    val |= ((uint64_t)b[6] << 48);
+    val |= ((uint64_t)b[7] << 56);
+    
+    return val;
+}
+
+static bool header_check(void* ptr, int length_bytes)
+{
+    uint8_t sum = 0;
+    uint8_t *bytes = (uint8_t *) ptr;
+
+    for (int i = 0; i < length_bytes; i++) {
+        sum += bytes[i];
+    }
+
+    return sum == 0;
+}
+
+static void initialize_acpi_tables(void) {
+    const unsigned int acpi_flags = PAGE_NOT_CACHEABLE | PAGE_READ | PAGE_KERNEL;
+
+    // mapping xsdp
+    uintptr_t acpi_xsdp_addr = km_map((uintptr_t)acpi_rsdp, sizeof(struct acpi_rsdp), KM_NATURAL_ALIGNMENT, acpi_flags);
+    struct acpi_rsdp* acpi_xsdp = (struct acpi_rsdp*)acpi_xsdp_addr;
+
+    if (acpi_xsdp->revision < 2) {
+        // since we use UEFI that provides us 64b version this check is optional 
+        printf("RSDP is not XSDP (not 64b)\n");
+        return;
+    }
+
+    bool rsdp_valid = header_check(acpi_xsdp, sizeof(struct acpi_rsdp));
+    if (!rsdp_valid) {
+        printf("RSDP is not valid!\n");
+        return;
+    }
+
+    // now we map only header of the xsdt since we don't know how big it is
+    // later we will remap it
+    uintptr_t acpi_xsdt_addr = km_map((uintptr_t)acpi_xsdp->xsdt_address, sizeof(struct acpi_sdt_header), KM_NATURAL_ALIGNMENT, acpi_flags);
+    struct acpi_xsdt* acpi_xsdt = (struct acpi_xsdt*)acpi_xsdt_addr;
+
+    int table_length = acpi_xsdt->header.length;
+    
+    acpi_xsdt_addr = km_map((uintptr_t)acpi_xsdp->xsdt_address, table_length, KM_NATURAL_ALIGNMENT, acpi_flags);
+    acpi_xsdt = (struct acpi_xsdt*)acpi_xsdt_addr;
+    
+    bool xsdt_valid = header_check((void*)acpi_xsdt_addr, acpi_xsdt->header.length);
+    if (!xsdt_valid) {
+        printf("XSDT is not valid!\n"); // Přidáno \n
+        return;
+    }
+    
+    // xsdt is valid and now we can iterate through the entries
+    int entries_number = (acpi_xsdt->header.length - sizeof(struct acpi_sdt_header)) / sizeof(uint64_t);
+
+    for (int i = 0; i < entries_number; ++i) {
+        uint64_t phys_addr = read_unaligned_64((const void*)acpi_xsdt->entry[i]);
+
+        uintptr_t entry_header_addr = km_map((uintptr_t)phys_addr, sizeof(struct acpi_sdt_header), KM_NATURAL_ALIGNMENT, acpi_flags);
+        struct acpi_sdt_header* entry_header = (struct acpi_sdt_header*)entry_header_addr;
+
+        printf("Entry signature %u: ", i);
+        for (int j = 0; j < 4; ++j) {
+            printf("%c", (char)entry_header->signature[j]);
+        }
+        printf("\n");
+    }
+    
+}
+
+/**
+* Initialize the RPi 3 platform.
+*
+* Unfortunately mappings of the ACPI table should be done here due to
+* compilation errors in generic acpi.c
+*
+*/
 static void rpi3_init(void)
 {	
 	const unsigned int uart_flags = PAGE_NOT_CACHEABLE | PAGE_READ | PAGE_WRITE | PAGE_KERNEL;
+
+	// printf works only after setting the miniUART virtual base
     rpi3_miniuart_virt_base = km_map(VIDEO_ADR2CPU_ADR(AUX_MU_BASE_REG), PAGE_SIZE, KM_NATURAL_ALIGNMENT, uart_flags);
-
-	const unsigned int acpi_rsdp_flags = PAGE_READ | PAGE_KERNEL;
-	rpi3_acpi_rsdp = km_map((uintptr_t)acpi_rsdp, PAGE_SIZE, KM_NATURAL_ALIGNMENT, acpi_rsdp_flags);
-
-	printf("rpi3_acpi_rsdp: %p\n", (void*)rpi3_acpi_rsdp);
+	initialize_acpi_tables();
 }
 
 /** Handle interrupts for the RPi3 platform. */
@@ -118,8 +204,7 @@ static void rpi3_early_uart_output(char32_t c)
 	volatile uint32_t *uart_data = (volatile uint32_t *)(rpi3_miniuart_virt_base + AUX_MU_IO_OFFSET);
 	volatile uint32_t *uart_status = (volatile uint32_t *)(rpi3_miniuart_virt_base + AUX_MU_LSR_OFFSET);
 
-	while ((*uart_status & BIT(5)) == 0) {
-	}
+	while ((*uart_status & BIT(5)) == 0) {}
 
 	*uart_data = c;
 }
