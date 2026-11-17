@@ -46,6 +46,20 @@
 // second in mapping to virtual address
 fdt_header* fdt_pointer = NULL;
 
+/**
+ * @brief Prints misaligned string byte by byte
+ * 
+ * Copies string to buffer with size: BUFFER_STRING_SIZE.
+ * If the size of the string is bigger then str_cpy 
+ * cuts it and terminates with \0
+ * 
+ * @param string String to print
+ */
+static void print_misaligned_string(const char* string) {
+    char safe_name[BUFFER_STRING_SIZE];
+    str_cpy(safe_name, BUFFER_STRING_SIZE, string);
+    printf("%s", safe_name);
+}
 
 static inline bool is_printable_ascii(char c) {
 	if (c < 0x20 || c > 0x7E) {
@@ -60,7 +74,7 @@ static inline bool is_printable_ascii(char c) {
  *
  * In case len == 0, the string is not valid.
  *
- * Allow \0 so we can print <string list> to
+ * Allow \0 so we can print <string list> too
  *
  * @param string String to check.
  * @param len Length of the potential string in bytes.
@@ -88,7 +102,14 @@ static bool is_printable_ascii_string(const char* string, size_t len) {
 	return true;
 }
 
-
+/**
+ * @brief Prints value of the property
+ *
+ * Heurestically guesses if the value if flag, string (string list) or just raw data.
+ * 
+ * @param address Pointer to the value of the property
+ * @param len Length of the property value
+ */
 static void print_property_value(uintptr_t address, int len) {
     // flag
     if (len == 0) {
@@ -100,6 +121,7 @@ static void print_property_value(uintptr_t address, int len) {
     if (is_printable_ascii_string((char*)address, len)) {
         printf("= \"");
         
+        // here we can't use print_misaligned_string because we need to transform '\0' to ','
         for (int i = 0; i < len - 1; ++i) {
             char c = ((char*)address)[i];
             
@@ -115,12 +137,12 @@ static void print_property_value(uintptr_t address, int len) {
     }
 
     // raw data
-    printf("= < ");
+    printf("= RAW DATA: ");
     uint8_t* raw_data = (uint8_t*)address;
     for (int i = 0; i < len; ++i) {
         printf("%02X ", raw_data[i]);
     }
-    printf(">;\n");
+    printf(";\n");
 
     return;
 }
@@ -130,9 +152,8 @@ static void print_path(const char** path, int depth) {
         if (path[i][0] != '\0') { 
 			// here we need to create safe string because pointer 
 			// in path array can point to misaligned memory
-            char safe_string[BUFFER_STRING_SIZE];
-			str_cpy(safe_string, BUFFER_STRING_SIZE, path[i]);
-            printf("/%s", safe_string);
+            printf("/");
+            print_misaligned_string(path[i]);
         } else if (depth == 0) {
 			printf("/");
 		}
@@ -226,12 +247,9 @@ errno_t dump_fdt(void) {
 					uint32_t name_offset = BE2LE(current_property->nameoff);
 
 					char* string_name = (char*)(strings_addr + name_offset);
-					char safe_name[BUFFER_STRING_SIZE];
-					str_cpy(safe_name, BUFFER_STRING_SIZE, string_name);
-                    
-					// we will print the name
 					for (int j = 0; j < depth; ++j) printf("\t");
-					printf("'%s'\n", safe_name);
+                    print_misaligned_string(string_name);
+					printf(":\n");
 
 					uint32_t len = BE2LE(current_property->len);
 
