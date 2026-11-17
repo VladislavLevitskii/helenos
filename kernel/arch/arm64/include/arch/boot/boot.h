@@ -97,6 +97,8 @@ typedef struct {
 	taskmap_t taskmap;
 	/** Memory map. */
 	memmap_t memmap;
+	/** Flat device tree pointer */
+	void* fdt_ptr;
 } bootinfo_t;
 
 #endif /* __ASSEMBLER__ */

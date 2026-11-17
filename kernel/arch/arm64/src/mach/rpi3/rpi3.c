@@ -33,12 +33,14 @@
  * @brief Raspberry Pi platform driver.
  */
 
-#include "genarch/acpi/acpi.h"
+
+#include "arch/asm.h"
 #include <arch/mach/rpi3/rpi3.h>
 #include <genarch/drivers/pl011/pl011.h>
 #include <genarch/drivers/bcm2835/irc.h>
 #include <genarch/drivers/bcm2835/timer.h>
 #include <genarch/drivers/bcm2835/mbox.h>
+#include <genarch/fdt/fdt.h>
 #include <mm/km.h>
 #include <stdio.h>
 
@@ -51,22 +53,30 @@
 #define VIDEO_ADR2CPU_ADR(n) ((n) - 0x3F000000)
 
 static uintptr_t rpi3_miniuart_virt_base = 0;
-static uintptr_t rpi3_acpi_rsdp = 0;
 
 // static struct {
 // 	pl011_uart_t	uart;
 // } raspi;
 
+
 /** Initialize the RPi 3 platform. */
 static void rpi3_init(void)
 {	
 	const unsigned int uart_flags = PAGE_NOT_CACHEABLE | PAGE_READ | PAGE_WRITE | PAGE_KERNEL;
+	// TODO size is the UART struct
     rpi3_miniuart_virt_base = km_map(VIDEO_ADR2CPU_ADR(AUX_MU_BASE_REG), PAGE_SIZE, KM_NATURAL_ALIGNMENT, uart_flags);
 
-	const unsigned int acpi_rsdp_flags = PAGE_READ | PAGE_KERNEL;
-	rpi3_acpi_rsdp = km_map((uintptr_t)acpi_rsdp, PAGE_SIZE, KM_NATURAL_ALIGNMENT, acpi_rsdp_flags);
+	if (process_fdt() != EOK) {
+		printf("Unable to process FDT! Halting.\n");
+		cpu_halt();
+	}
 
-	printf("rpi3_acpi_rsdp: %p\n", (void*)rpi3_acpi_rsdp);
+	if (dump_fdt() == EINVAL) {
+		printf("Invalid format of the device tree!\n");
+		cpu_halt();
+	} else {
+		printf("Device tree was dumped!\n");
+	}
 }
 
 /** Handle interrupts for the RPi3 platform. */

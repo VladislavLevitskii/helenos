@@ -121,6 +121,10 @@ if CONFIG_GICV3
 	'drivers/gicv3/tfa/gicrv3_helpers.c', 'drivers/gicv3/tfa/gicdv3_helpers.c', 'drivers/gicv3/tfa/gicv3_main.c' ]
 endif
 
+if CONFIG_FDT
+	_src += [ 'fdt/fdt.c' ]
+endif
+
 if CONFIG_VIA_CUDA
 	_src += [ 'drivers/via-cuda/cuda.c' ]
 endif

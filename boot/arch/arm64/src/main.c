@@ -42,6 +42,7 @@
 #include <arch/regutils.h>
 #include <arch/types.h>
 #include <errno.h>
+#include <genarch/efi.h>
 #include <inflate.h>
 #include <kernel.h>
 #include <macros.h>
@@ -295,6 +296,19 @@ efi_status_t bootstrap(void *efi_handle_in,
 
 	uintptr_t entry = check_kernel_translated((void *) decompress_base,
 	    BOOT_OFFSET);
+
+    printf("Storing FDT pointer to the bootinfo...\n");
+
+    efi_guid_t fdt_guid = FDT_TABLE_GUID;
+    void* fdt = efi_vendor_table_find(efi_system_table_in, fdt_guid);
+
+    if (fdt) {
+        bootinfo->fdt_ptr = fdt;
+        printf("Flat device tree pointer successfully retrieved at %p\n", fdt);
+    } else {
+		bootinfo->fdt_ptr = NULL;
+        printf("Warning: Flat device tree was not found!\n");
+    }
 
 	printf("Booting the kernel...\n");
 

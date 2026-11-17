@@ -40,6 +40,7 @@
 #include <arch/exception.h>
 #include <arch/machine_func.h>
 #include <console/console.h>
+#include <genarch/fdt/fdt.h>
 #include <interrupt.h>
 #include <proc/scheduler.h>
 #include <syscall/syscall.h>
@@ -79,6 +80,8 @@ void arm64_pre_main(void *entry __attribute__((unused)), bootinfo_t *bootinfo)
 		memmap.zones[i].start = bootinfo->memmap.zones[i].start;
 		memmap.zones[i].size = bootinfo->memmap.zones[i].size;
 	}
+
+	fdt_pointer = bootinfo->fdt_ptr;
 
 	/* Initialize machine_ops pointer. */
 	machine_ops_init();

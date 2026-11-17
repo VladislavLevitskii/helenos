@@ -76,6 +76,7 @@ _config_variables = [
 	'CONFIG_DWAPB',
 	'CONFIG_EGA',
 	'CONFIG_FB',
+	'CONFIG_FDT',
 	'CONFIG_GICV2',
 	'CONFIG_GICV3',
 	'CONFIG_I8042',
