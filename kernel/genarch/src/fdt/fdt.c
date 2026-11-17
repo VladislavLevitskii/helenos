@@ -35,15 +35,95 @@
  */
 
 #include <genarch/fdt/fdt.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <align.h>
 #include <mm/km.h>
 
-// this pointer is set twice
-// first in main after reading the bootinfo
+// this pointer is set twice,
+// first in main after reading the bootinfo,
 // second in mapping to virtual address
 fdt_header* fdt_pointer = NULL;
+
+
+static inline bool is_printable_ascii(char c) {
+	if (c < 0x20 || c > 0x7E) {
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * @brief Checks if the given data is a printable ASCII string.
+ *
+ * In case len == 0, the string is not valid.
+ *
+ * Allow \0 so we can print <string list> to
+ *
+ * @param string String to check.
+ * @param len Length of the potential string in bytes.
+ * @return true If the string has the length of 'len', every byte from index 0 
+ * to len - 2 is a valid printable ASCII character (from 0x20 to 0x7E and 0x00), 
+ * and the byte at index len - 1 is '\0'.
+ * @return false Otherwise.
+ */
+static bool is_printable_ascii_string(const char* string, size_t len) {
+	if (len == 0) {
+		return false;
+	}
+
+	for (size_t i = 0; i < len - 1; ++i) {
+        const char c = string[i];
+		if (!is_printable_ascii(c) && c != '\0') {
+			return false;
+		}
+	}
+
+	if (string[len - 1] != '\0') {
+		return false;
+	}
+
+	return true;
+}
+
+
+static void print_property_value(uintptr_t address, int len) {
+    // flag
+    if (len == 0) {
+        printf("= (flag);\n");
+        return;
+    }
+    
+    // string or string list
+    if (is_printable_ascii_string((char*)address, len)) {
+        printf("= \"");
+        
+        for (int i = 0; i < len - 1; ++i) {
+            char c = ((char*)address)[i];
+            
+            if (c == '\0') {
+                printf("\", \"");
+            } else {
+                printf("%c", c);
+            }
+        }
+        
+        printf("\";\n");
+        return;
+    }
+
+    // raw data
+    printf("= < ");
+    uint8_t* raw_data = (uint8_t*)address;
+    for (int i = 0; i < len; ++i) {
+        printf("%02X ", raw_data[i]);
+    }
+    printf(">;\n");
+
+    return;
+}
 
 static void print_path(const char** path, int depth) {
     for (int i = 0; i <= depth; ++i) {
@@ -60,10 +140,10 @@ static void print_path(const char** path, int depth) {
 }
 
 /**
- * @brief Initialize fdt_virt by mapping it to a virtual address 
+ * @brief Initialize fdt by mapping it to a virtual address 
  * and checking magic number.
  * 
- * @return errno_t 
+ * @return errno_t
  */
 errno_t process_fdt(void) {
 	const unsigned int fdt_flags = PAGE_READ | PAGE_KERNEL;
@@ -145,20 +225,23 @@ errno_t dump_fdt(void) {
 					uintptr_t strings_addr = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_strings);
 					uint32_t name_offset = BE2LE(current_property->nameoff);
 
-					// we will print the name
-					for (int j = 0; j < depth; ++j) printf("\t");
-
 					char* string_name = (char*)(strings_addr + name_offset);
 					char safe_name[BUFFER_STRING_SIZE];
 					str_cpy(safe_name, BUFFER_STRING_SIZE, string_name);
-
+                    
+					// we will print the name
+					for (int j = 0; j < depth; ++j) printf("\t");
 					printf("'%s'\n", safe_name);
 
-					uint32_t property_size = sizeof(fdt_property);
 					uint32_t len = BE2LE(current_property->len);
 
-					// add len to the current_address
-					current_address += property_size;
+					// skip header
+					current_address += sizeof(fdt_property);
+
+                    for (int j = 0; j < depth + 1; ++j) printf("\t");
+                    print_property_value(current_address, len);
+
+                    // skip value
 					current_address += len;
 					current_address = ALIGN_UP(current_address, TOKEN_SIZE);
 				}
@@ -166,8 +249,8 @@ errno_t dump_fdt(void) {
 			case FDT_NOP:
 				{
 					current_address += TOKEN_SIZE;
+                    continue;
 				}
-				continue;
 			case FDT_END: 
                 {
 					printf("Found FDT_END. End of tree.\n");
