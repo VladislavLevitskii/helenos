@@ -215,15 +215,19 @@ static errno_t copy_path(const char** path, int depth, char* out_buffer, int buf
 	return EOK;
 }
 
-/**
- * @brief Initialize fdt by mapping it to a virtual address 
- * and checking magic number.
- * 
- * @return errno_t
- */
+const char* get_name_prop(const fdt_prop_t* property) {
+	if (!fdt_pointer || !property) {
+		return NULL;
+	}
+
+	uintptr_t strings_addr = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_strings);
+	uint32_t name_offset = BE2LE(property->nameoff);
+
+	return (const char*)(strings_addr + name_offset);
+}
+
 errno_t fdt_init(void) {
-	if (fdt_pointer == NULL) {
-		printf("Invalid FDT pointer from bootinfo!\n");
+	if (!fdt_pointer) {
 		return EINVAL;
 	}
 	
@@ -234,7 +238,6 @@ errno_t fdt_init(void) {
 	const uint32_t magic = BE2LE(fdt_header_pointer->magic);
 
 	if (magic != FDT_HEADER_MAGIC) {
-		printf("Invalid magic of the FDT header: %x\n", magic);
 		return EINVAL;
 	}
 
@@ -245,11 +248,6 @@ errno_t fdt_init(void) {
 	return EOK;
 }
 
-/**
- * @brief Dumps whole FDT
- * 
- * @return errno_t 
- */
 errno_t fdt_dump(void) {
 	if (!fdt_pointer) {
 		printf("FDT pointer is not initialized!\n");
@@ -314,10 +312,8 @@ errno_t fdt_dump(void) {
 					current_address += TOKEN_SIZE;
 					fdt_prop_t* current_property = (fdt_prop_t*)current_address;
 
-					uintptr_t strings_addr = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_strings);
-					uint32_t name_offset = BE2LE(current_property->nameoff);
+					const char* string_name = get_name_prop(current_property);
 
-					char* string_name = (char*)(strings_addr + name_offset);
 					for (int j = 0; j < depth; ++j) printf("\t");
                     print_misaligned_string(string_name);
 					printf(":\n");
@@ -449,7 +445,6 @@ errno_t fdt_find_node(const char* path, uintptr_t* out_node) {
 	return EINVAL;
 }
 
-
 const fdt_prop_t* fdt_get_prop(uintptr_t node, const char* prop_name) {
 	if (!node || !prop_name || !fdt_pointer) {
 		return NULL;
@@ -462,8 +457,6 @@ const fdt_prop_t* fdt_get_prop(uintptr_t node, const char* prop_name) {
 	node += TOKEN_SIZE;
 	node += str_size((char*)node) + 1;
 	node = ALIGN_UP(node, TOKEN_SIZE);
-
-	uintptr_t strings_addr = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_strings);
 
 	while (true) {
 		TOKEN_TYPE token = BE2LE(*(uint32_t*)node);
@@ -478,9 +471,7 @@ const fdt_prop_t* fdt_get_prop(uintptr_t node, const char* prop_name) {
 					node += TOKEN_SIZE;
 					const fdt_prop_t* current_property = (fdt_prop_t*)node;
 
-					uint32_t name_offset = BE2LE(current_property->nameoff);
-
-					const char* string_name = (char*)(strings_addr + name_offset);
+					const char* string_name = get_name_prop(current_property);
 
 					if (!str_cmp(string_name, prop_name)) {
 						return current_property;

@@ -73,14 +73,6 @@ typedef struct {
 extern fdt_header_t* fdt_pointer;
 
 /**
- * @brief Dump the entire FDT to the console in a readable format.
- *
- * @return EOK on success.
- * @return EINVAL if the FDT is not initialized, malformed, or exceeds MAX_DEPTH.
- */
-errno_t fdt_dump(void);
-
-/**
  * @brief Initialize the FDT parser and map the device tree blob into kernel memory.
  *
  * Validates the FDT magic number and remaps FDT structure based on its totalsize field.
@@ -89,6 +81,14 @@ errno_t fdt_dump(void);
  * @return EINVAL if fdt_pointer is NULL or the FDT header magic is invalid.
  */
 errno_t fdt_init(void);
+
+/**
+ * @brief Dump the entire FDT to the console in a readable format.
+ *
+ * @return EOK on success.
+ * @return EINVAL if the FDT is not initialized, malformed, or exceeds MAX_DEPTH.
+ */
+errno_t fdt_dump(void);
 
 /**
  * @brief Find node by a provided path
@@ -111,6 +111,17 @@ errno_t fdt_find_node(const char* path, uintptr_t* out_node);
  * @return const fdt_prop_t* property
  */
 const fdt_prop_t* fdt_get_prop(uintptr_t node, const char* prop_name);
+
+/**
+ * @brief Get the name of the property
+ * 
+ * For printing it is necessary to copy that string 
+ * using std_cpy to some buffer.
+ *
+ * @param property Property
+ * @return const char* In most cases misaligned pointer
+ */
+const char* get_name_prop(const fdt_prop_t* property);
 
 #endif
 
