@@ -43,27 +43,20 @@
 
 #define FDT_HEADER_MAGIC (0xd00dfeed)
 
-#define BUFFER_STRING_SIZE (64)
-
+#define BUFFER_STRING_SIZE (256)
+#define MAX_DEPTH (32)
 #define TOKEN_SIZE (4)
 
 #define BE2LE(value) (uint32_t_byteorder_swap(value))
 
-
-typedef enum {
-    FDT_BEGIN_NODE = 0x00000001,
-    FDT_END_NODE = 0x00000002,
-    FDT_PROP = 0x00000003,
-    FDT_NOP = 0x00000004,
-    FDT_END = 0x00000009
-} TOKEN_TYPE;
-
+// All of the fields are Big Endian
 typedef struct {
     uint32_t len;
     uint32_t nameoff;
-} fdt_property;
+    uint8_t data[];
+} fdt_prop_t;
 
-// All the fields are Big Endian
+// All of the fields are Big Endian
 typedef struct {
     uint32_t magic;
     uint32_t totalsize;
@@ -75,12 +68,49 @@ typedef struct {
     uint32_t boot_cpuid_phys;
     uint32_t size_dt_strings;
     uint32_t size_dt_struct;
-} fdt_header;
+} fdt_header_t;
 
-extern fdt_header* fdt_pointer;
+extern fdt_header_t* fdt_pointer;
 
-errno_t dump_fdt(void);
-errno_t process_fdt(void);
+/**
+ * @brief Dump the entire FDT to the console in a readable format.
+ *
+ * @return EOK on success.
+ * @return EINVAL if the FDT is not initialized, malformed, or exceeds MAX_DEPTH.
+ */
+errno_t fdt_dump(void);
+
+/**
+ * @brief Initialize the FDT parser and map the device tree blob into kernel memory.
+ *
+ * Validates the FDT magic number and remaps FDT structure based on its totalsize field.
+ *
+ * @return EOK on success.
+ * @return EINVAL if fdt_pointer is NULL or the FDT header magic is invalid.
+ */
+errno_t fdt_init(void);
+
+/**
+ * @brief Find node by a provided path
+ * 
+ * @param path Example paths: "/" (root), "/soc/gpio@7e200000/spi0-gpio35"
+ * @param out_node Copies the pointer to
+ * @return errno_t 
+ * EINVAL if fdt_pointer is uninitialized or tree is invalid
+ * EOVERFLOW if the path is too long (than BUFFER_STRING_SIZE)
+ * EOK if successful
+ * ENOENT if there is no such node
+ */
+errno_t fdt_find_node(const char* path, uintptr_t* out_node);
+
+/**
+ * @brief Get pointer on property section
+ * 
+ * @param node Pointer to the node structure
+ * @param prop_name Property name to find
+ * @return const fdt_prop_t* property
+ */
+const fdt_prop_t* fdt_get_prop(uintptr_t node, const char* prop_name);
 
 #endif
 

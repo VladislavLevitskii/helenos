@@ -42,11 +42,11 @@
 #include <genarch/drivers/bcm2835/mbox.h>
 #include <genarch/fdt/fdt.h>
 #include <mm/km.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #define BIT(n) (1U << (n))
 
-#define AUX_MU_BASE_REG   0x7E215000 
 #define AUX_MU_IO_OFFSET  0x40 
 #define AUX_MU_LSR_OFFSET 0x54
 
@@ -62,21 +62,31 @@ static uintptr_t rpi3_miniuart_virt_base = 0;
 /** Initialize the RPi 3 platform. */
 static void rpi3_init(void)
 {	
-	const unsigned int uart_flags = PAGE_NOT_CACHEABLE | PAGE_READ | PAGE_WRITE | PAGE_KERNEL;
-	// TODO size is the UART struct
-    rpi3_miniuart_virt_base = km_map(VIDEO_ADR2CPU_ADR(AUX_MU_BASE_REG), PAGE_SIZE, KM_NATURAL_ALIGNMENT, uart_flags);
-
-	if (process_fdt() != EOK) {
+	if (fdt_init() != EOK) {
 		printf("Unable to process FDT! Halting.\n");
 		cpu_halt();
 	}
 
-	if (dump_fdt() == EINVAL) {
-		printf("Invalid format of the device tree!\n");
+	uintptr_t node;
+	errno_t err = fdt_find_node("/soc/aux@7e215000", &node);
+	if (err == EINVAL) {
+		printf("Invalid format of the device tree\n");
 		cpu_halt();
-	} else {
-		printf("Device tree was dumped!\n");
+	} else if (err == ENOENT) {
+		printf("No such node\n");
+		cpu_halt();
 	}
+
+	const fdt_prop_t* prop = fdt_get_prop(node, "reg");
+	if (prop == NULL) {
+		printf("There is no such property!\n");
+		cpu_halt();
+	}
+
+	uint32_t aux_reg = BE2LE(*(uint32_t*)prop->data);
+
+	const unsigned int uart_flags = PAGE_NOT_CACHEABLE | PAGE_READ | PAGE_WRITE | PAGE_KERNEL;
+    rpi3_miniuart_virt_base = km_map(VIDEO_ADR2CPU_ADR(aux_reg), PAGE_SIZE, KM_NATURAL_ALIGNMENT, uart_flags);
 }
 
 /** Handle interrupts for the RPi3 platform. */

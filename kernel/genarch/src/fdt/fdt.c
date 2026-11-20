@@ -34,6 +34,7 @@
  * @brief Parsing Flattened Device Tree
  */
 
+#include <str.h>
 #include <genarch/fdt/fdt.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -41,10 +42,18 @@
 #include <align.h>
 #include <mm/km.h>
 
+typedef enum {
+    FDT_BEGIN_NODE = 0x00000001,
+    FDT_END_NODE = 0x00000002,
+    FDT_PROP = 0x00000003,
+    FDT_NOP = 0x00000004,
+    FDT_END = 0x00000009
+} TOKEN_TYPE;
+
 // this pointer is set twice,
 // first in main after reading the bootinfo,
 // second in mapping to virtual address
-fdt_header* fdt_pointer = NULL;
+fdt_header_t* fdt_pointer = NULL;
 
 /**
  * @brief Prints misaligned string byte by byte
@@ -110,7 +119,7 @@ static bool is_printable_ascii_string(const char* string, size_t len) {
  * @param address Pointer to the value of the property
  * @param len Length of the property value
  */
-static void print_property_value(uintptr_t address, int len) {
+static void print_property_value(const uint8_t* data, int len) {
     // flag
     if (len == 0) {
         printf("= (flag);\n");
@@ -118,12 +127,12 @@ static void print_property_value(uintptr_t address, int len) {
     }
     
     // string or string list
-    if (is_printable_ascii_string((char*)address, len)) {
+    if (is_printable_ascii_string((char*)data, len)) {
         printf("= \"");
         
         // here we can't use print_misaligned_string because we need to transform '\0' to ','
         for (int i = 0; i < len - 1; ++i) {
-            char c = ((char*)address)[i];
+            char c = data[i];
             
             if (c == '\0') {
                 printf("\", \"");
@@ -138,26 +147,72 @@ static void print_property_value(uintptr_t address, int len) {
 
     // raw data
     printf("= RAW DATA: ");
-    uint8_t* raw_data = (uint8_t*)address;
     for (int i = 0; i < len; ++i) {
-        printf("%02X ", raw_data[i]);
+        printf("%02X ", data[i]);
     }
     printf(";\n");
 
     return;
 }
 
-static void print_path(const char** path, int depth) {
-    for (int i = 0; i <= depth; ++i) {
-        if (path[i][0] != '\0') { 
-			// here we need to create safe string because pointer 
-			// in path array can point to misaligned memory
-            printf("/");
-            print_misaligned_string(path[i]);
-        } else if (depth == 0) {
-			printf("/");
+/**
+ * @brief Creates printable string and copies it to the buffer.
+ * 
+ * @param path Array of the folders
+ * @param depth Depth of the folders
+ * @param out_buffer Buffer to copy
+ * @param buffer_size Buffer size
+ * @return errno_t 
+ * EOK if copying was successful, 
+ * EOVERFLOW if copying was successful but buffer was to small to copy everything (still printable string)
+ * EINVAL if the function was called with invalid parameters (practically unreachable)
+ */
+static errno_t copy_path(const char** path, int depth, char* out_buffer, int buffer_size) {
+	// check if we have place for '/\0'
+	if (!out_buffer || !path || buffer_size < 2) {
+		return EINVAL;
+	}
+
+	// for checking if we copied everything we could
+	int totalsize = 0;
+
+	int buffer_size_local = buffer_size;
+
+	// root directory
+	*out_buffer++ = '/';
+	totalsize++;
+	buffer_size_local--;
+
+	for (int node_idx = 0; node_idx <= depth; ++node_idx) {
+		const char* current_folder = path[node_idx];
+
+		totalsize += str_size(current_folder);
+
+		str_cpy(out_buffer, buffer_size_local, current_folder);
+		
+		size_t copied_len = str_size(out_buffer);
+		// we don't add '\0' as a byte because we will overwrite it with '/'
+		out_buffer += copied_len;
+		buffer_size_local -= copied_len;
+
+		// if it is not last folder and it is not first one (because it always has '')
+		if (node_idx < depth && current_folder[0] != '\0') {
+			totalsize++;
+			if (buffer_size_local - 1 > 0) {
+				*out_buffer++ = '/';
+				buffer_size_local--;
+			}
 		}
-    }
+	}
+
+	*(out_buffer) = '\0';
+	totalsize++;
+
+	if (totalsize > buffer_size) {
+		return EOVERFLOW;
+	}
+
+	return EOK;
 }
 
 /**
@@ -166,27 +221,27 @@ static void print_path(const char** path, int depth) {
  * 
  * @return errno_t
  */
-errno_t process_fdt(void) {
+errno_t fdt_init(void) {
+	if (fdt_pointer == NULL) {
+		printf("Invalid FDT pointer from bootinfo!\n");
+		return EINVAL;
+	}
+	
 	const unsigned int fdt_flags = PAGE_READ | PAGE_KERNEL;
 
-    if (fdt_pointer == NULL) {
-        printf("Invalid FDT pointer from bootinfo!\n");
-        return EINVAL;
-    }
-
     // the first mapping
-	fdt_header* fdt_header_pointer = (fdt_header*)km_map((uintptr_t)fdt_pointer, sizeof(fdt_header), KM_NATURAL_ALIGNMENT, fdt_flags);
+	fdt_header_t* fdt_header_pointer = (fdt_header_t*)km_map((uintptr_t)fdt_pointer, sizeof(fdt_header_t), KM_NATURAL_ALIGNMENT, fdt_flags);
 	const uint32_t magic = BE2LE(fdt_header_pointer->magic);
 
 	if (magic != FDT_HEADER_MAGIC) {
-		printf("Invalid magic of the header: %x\n", magic);
+		printf("Invalid magic of the FDT header: %x\n", magic);
 		return EINVAL;
 	}
 
 	const uint32_t fdt_size = BE2LE(fdt_header_pointer->totalsize);
 
     // here is the second mapping
-	fdt_pointer = (fdt_header*)km_map((uintptr_t)fdt_pointer, fdt_size, KM_NATURAL_ALIGNMENT, fdt_flags);
+	fdt_pointer = (fdt_header_t*)km_map((uintptr_t)fdt_pointer, fdt_size, KM_NATURAL_ALIGNMENT, fdt_flags);
 	return EOK;
 }
 
@@ -195,10 +250,15 @@ errno_t process_fdt(void) {
  * 
  * @return errno_t 
  */
-errno_t dump_fdt(void) {
+errno_t fdt_dump(void) {
+	if (!fdt_pointer) {
+		printf("FDT pointer is not initialized!\n");
+		return EINVAL;
+	}
+
 	printf("Starting dumping...\n");
 
-	const char* path[32];
+	const char* path[MAX_DEPTH];
 
 	uintptr_t current_address = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_struct);
 
@@ -209,28 +269,39 @@ errno_t dump_fdt(void) {
 		switch (token) {
 			case FDT_BEGIN_NODE:
                 {
-					// we shouldn't create save buffer for string because it should be aligned
+					if (depth >= MAX_DEPTH) {
+                        printf("FDT too deep!\n");
+                        return EINVAL;
+                    }
+
 					const char* raw_unit_name = (char*)(current_address + TOKEN_SIZE);
 					path[depth] = raw_unit_name;
 					
 					for (int i = 0; i < depth; ++i) { printf("\t"); }
-					print_path(path, depth);
-					printf(" {\n");
+					char path_name[BUFFER_STRING_SIZE];
+					errno_t err = copy_path(path, depth, path_name, BUFFER_STRING_SIZE);
+					if (err == EINVAL) {
+						// should be unreachable
+						printf("Some problems with parameters while copying the path!\n");
+						return EINVAL;
+					}
+					
+					printf("%s {\n", path_name);
 					
 					current_address += TOKEN_SIZE;
 					current_address += str_size(raw_unit_name) + 1;
 					current_address = ALIGN_UP(current_address, TOKEN_SIZE);
 
 					depth++;
-					if (depth >= 32) {
-                        printf("FDT too deep!\n");
-                        return EINVAL;
-                    }
 
 					break;
 				}
 			case FDT_END_NODE:
 				{
+					if (depth <= 0) {
+						return EINVAL;
+					}
+
 					current_address += TOKEN_SIZE;
 					depth--;
 					path[depth] = NULL;
@@ -241,7 +312,7 @@ errno_t dump_fdt(void) {
 			case FDT_PROP:
 				{	
 					current_address += TOKEN_SIZE;
-					fdt_property* current_property = (fdt_property*)current_address;
+					fdt_prop_t* current_property = (fdt_prop_t*)current_address;
 
 					uintptr_t strings_addr = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_strings);
 					uint32_t name_offset = BE2LE(current_property->nameoff);
@@ -253,13 +324,10 @@ errno_t dump_fdt(void) {
 
 					uint32_t len = BE2LE(current_property->len);
 
-					// skip header
-					current_address += sizeof(fdt_property);
-
                     for (int j = 0; j < depth + 1; ++j) printf("\t");
-                    print_property_value(current_address, len);
-
-                    // skip value
+                    print_property_value(current_property->data, len);
+					
+					current_address += sizeof(fdt_prop_t);
 					current_address += len;
 					current_address = ALIGN_UP(current_address, TOKEN_SIZE);
 				}
@@ -285,6 +353,152 @@ errno_t dump_fdt(void) {
 
 	printf("FDT_END wasn't found.");
 	return EINVAL;
+}
+
+errno_t fdt_find_node(const char* path, uintptr_t* out_node) {
+	if (!path || !out_node || !fdt_pointer) {
+		return EINVAL;
+	}
+
+	if (str_size(path) >= BUFFER_STRING_SIZE) {
+		return EOVERFLOW;
+	}
+
+	const char* current_path[MAX_DEPTH];
+	char current_path_buffer[BUFFER_STRING_SIZE];
+
+	uintptr_t current_address = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_struct);
+
+	int depth = 0;
+
+	while (true) {
+		TOKEN_TYPE token = BE2LE(*(uint32_t*)current_address);
+		switch (token) {
+			case FDT_BEGIN_NODE:
+                {
+					if (depth >= MAX_DEPTH) {
+                        return EINVAL;
+                    }
+
+					const char* raw_unit_name = (char*)(current_address + TOKEN_SIZE);
+					current_path[depth] = raw_unit_name;
+
+					errno_t err = copy_path(current_path, depth, current_path_buffer, BUFFER_STRING_SIZE);
+
+					if (err == EOK) {
+						if (!str_cmp(path, current_path_buffer)) {
+							*out_node = current_address;
+							return EOK;
+						}
+					} else if (err != EOVERFLOW) {
+						// the idea behind that is we might step across
+						// long path that we are not trying to find
+						// so we don't want to return early
+						return err;
+					}
+
+					current_address += TOKEN_SIZE;
+					current_address += str_size(raw_unit_name) + 1;
+					current_address = ALIGN_UP(current_address, TOKEN_SIZE);
+
+					depth++;
+
+					break;
+				}
+			case FDT_END_NODE:
+				{
+					if (depth <= 0) {
+						return EINVAL;
+					}
+
+					current_address += TOKEN_SIZE;
+					depth--;
+					current_path[depth] = NULL;
+					break;
+				}
+			case FDT_PROP:
+				{
+					current_address += TOKEN_SIZE;
+					fdt_prop_t* current_property = (fdt_prop_t*)current_address;
+					uint32_t len = BE2LE(current_property->len);
+					
+					current_address += sizeof(fdt_prop_t);
+					current_address += len;
+					current_address = ALIGN_UP(current_address, TOKEN_SIZE);
+				}
+				break;
+			case FDT_NOP:
+				{
+					current_address += TOKEN_SIZE;
+                    continue;
+				}
+			case FDT_END: 
+                {
+                	return ENOENT; 
+				}
+            default:
+				{
+					// should be unreachable if device tree is valid
+					return EINVAL;
+				}
+		}
+
+	}
+
+	// should be unreachable if device tree is valid
+	return EINVAL;
+}
+
+
+const fdt_prop_t* fdt_get_prop(uintptr_t node, const char* prop_name) {
+	if (!node || !prop_name || !fdt_pointer) {
+		return NULL;
+	}
+
+	if (BE2LE(*(uint32_t*)node) != FDT_BEGIN_NODE) {
+		return NULL;
+	}
+
+	node += TOKEN_SIZE;
+	node += str_size((char*)node) + 1;
+	node = ALIGN_UP(node, TOKEN_SIZE);
+
+	uintptr_t strings_addr = (uintptr_t)fdt_pointer + BE2LE(fdt_pointer->off_dt_strings);
+
+	while (true) {
+		TOKEN_TYPE token = BE2LE(*(uint32_t*)node);
+		switch (token) {
+			case FDT_NOP:
+				{
+					node += TOKEN_SIZE;
+					break;
+				}
+			case FDT_PROP:
+				{
+					node += TOKEN_SIZE;
+					const fdt_prop_t* current_property = (fdt_prop_t*)node;
+
+					uint32_t name_offset = BE2LE(current_property->nameoff);
+
+					const char* string_name = (char*)(strings_addr + name_offset);
+
+					if (!str_cmp(string_name, prop_name)) {
+						return current_property;
+					}
+
+					uint32_t len = BE2LE(current_property->len);
+					node += sizeof(fdt_prop_t);
+					node += len;
+					node = ALIGN_UP(node, TOKEN_SIZE);
+					break;
+				}
+			case FDT_END:
+			case FDT_BEGIN_NODE:
+			case FDT_END_NODE:
+			default:
+				return NULL;
+		}
+	}
 }
 
 /** @}
